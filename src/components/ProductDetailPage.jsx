@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import Icon from './Icon.jsx'
 import ProductVisual from './ProductVisual.jsx'
-import { getStockLabel, products } from '../data/products.js'
+import { getStockLabel, products as initialProducts } from '../data/products.js'
 import ProductCard from './ProductCard.jsx'
 
-export default function ProductDetailPage({ product, wishlist, onToggleWishlist, onAddToBag, onViewProduct, onBack }) {
+export default function ProductDetailPage({ product, products = initialProducts, wishlist, onToggleWishlist, onAddToBag, onViewProduct, onBack }) {
   const [quantity, setQuantity] = useState(1)
   if (!product) return <main className="product-not-found"><p>We couldn't find that product.</p><button type="button" className="primary-button" onClick={onBack}>Return to the collection</button></main>
 

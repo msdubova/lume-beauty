@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import ProductCard from './ProductCard.jsx'
 import Icon from './Icon.jsx'
-import { brands, categories, products } from '../data/products.js'
+import { brands, categories } from '../data/products.js'
 
 const PAGE_SIZE = 12
 
-export default function ShopPage({ initialCategory = '', searchTerm = '', wishlist, onToggleWishlist, onAddToBag, onViewProduct, onClearSearch }) {
+export default function ShopPage({ products, initialCategory = '', searchTerm = '', wishlist, onToggleWishlist, onAddToBag, onViewProduct, onClearSearch }) {
   const [category, setCategory] = useState(initialCategory)
   const [query, setQuery] = useState(searchTerm)
   const [selectedBrands, setSelectedBrands] = useState([])

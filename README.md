@@ -64,3 +64,13 @@ src/
 - Product data is synthetic and held in `src/data/products.js`; no PostgreSQL database is connected yet.
 - Prices, costs, stock levels, launch dates, ratings and review counts are invented for demonstration and portfolio practice.
 - Delivery and returns content is illustrative and must be replaced with real policies before any public launch.
+
+## Fixes in v1.0.1
+- Added the missing `ProductCard` import in `src/App.jsx`. This fixes the `ProductCard is not defined` runtime error on the wishlist page.
+
+
+## Admin Dashboard (local demo)
+
+Open the admin interface at `http://localhost:5173/#admin`. The dashboard includes an overview, product maintenance, inventory quick adjustments and product catalogue CSV export. Product edits are stored in the browser's `localStorage` under `lume-beauty-catalogue-v1`, so they persist on the same browser and device. They are not synced to a server or database.
+
+The Products screen supports editing name, brand, category, selling price, unit cost, stock, reorder level and description, as well as adding a new product. The Inventory screen supports one-unit stock adjustments. Data export downloads the current product master as CSV for Excel. Orders, sales simulation, user authentication, cloud persistence and advanced analytics are planned for later phases and are not implemented in this local demo yet.
