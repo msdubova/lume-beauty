@@ -11,6 +11,7 @@ import ProductDetailPage from './components/ProductDetailPage.jsx'
 import ProductVisual from './components/ProductVisual.jsx'
 import AdminDashboard from './components/AdminDashboard.jsx'
 import { products as initialProducts } from './data/products.js'
+import { checkApiHealth, getProducts, updateProductApi, createProductApi } from './lib/api.js'
 import heroImage from './assets/hero-still-life.jpg'
 
 function readRoute() {
@@ -38,10 +39,40 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [shopCategory, setShopCategory] = useState('')
   const [toast, setToast] = useState('')
+  const [dataSourceStatus, setDataSourceStatus] = useState('checking')
 
   useEffect(() => {
-    try { window.localStorage.setItem('lume-beauty-catalogue-v1', JSON.stringify(catalogueProducts)) } catch (error) { console.warn('Could not save catalogue locally', error) }
-  }, [catalogueProducts])
+    let cancelled = false
+
+    async function connectDatabase() {
+      try {
+        await checkApiHealth()
+        const databaseProducts = await getProducts()
+        if (!Array.isArray(databaseProducts) || databaseProducts.length === 0) {
+          throw new Error('The database has no products yet. Run npm run db:seed first.')
+        }
+        if (!cancelled) {
+          setCatalogueProducts(databaseProducts)
+          setDataSourceStatus('database')
+        }
+      } catch (error) {
+        console.info('Lume API is not available; using local demo data.', error.message)
+        if (!cancelled) setDataSourceStatus('local')
+      }
+    }
+
+    connectDatabase()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (dataSourceStatus !== 'local') return
+    try {
+      window.localStorage.setItem('lume-beauty-catalogue-v1', JSON.stringify(catalogueProducts))
+    } catch (error) {
+      console.warn('Could not save catalogue locally', error)
+    }
+  }, [catalogueProducts, dataSourceStatus])
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -122,8 +153,27 @@ function App() {
   const clearSearch = () => setSearchTerm('')
   const selectedProduct = catalogueProducts.find((product) => product.id === route.productId)
 
-  const updateProduct = (updated) => setCatalogueProducts((current) => current.map((item) => item.id === updated.id ? updated : item))
-  const addProduct = (item) => setCatalogueProducts((current) => [item, ...current])
+  const updateProduct = async (updated) => {
+    if (dataSourceStatus === 'database') {
+      const saved = await updateProductApi(updated)
+      setCatalogueProducts((current) => current.map((item) => item.id === saved.id ? saved : item))
+      return saved
+    }
+
+    setCatalogueProducts((current) => current.map((item) => item.id === updated.id ? updated : item))
+    return updated
+  }
+
+  const addProduct = async (item) => {
+    if (dataSourceStatus === 'database') {
+      const saved = await createProductApi(item)
+      setCatalogueProducts((current) => [saved, ...current])
+      return saved
+    }
+
+    setCatalogueProducts((current) => [item, ...current])
+    return item
+  }
 
   return (
     <div className="site-shell" id="top">
@@ -251,7 +301,7 @@ function App() {
         </>
       )}
 
-      {route.page === 'admin' && <AdminDashboard products={catalogueProducts} onUpdateProduct={updateProduct} onAddProduct={addProduct} />}
+      {route.page === 'admin' && <AdminDashboard products={catalogueProducts} onUpdateProduct={updateProduct} onAddProduct={addProduct} dataSourceStatus={dataSourceStatus} />}
 
       {route.page === 'account' && (
         <main className="simple-state-page"><p className="eyebrow">COMING SOON</p><h1>My account</h1><p>Customer accounts will be connected in a later development phase.</p><button type="button" className="primary-button" onClick={() => navigate('shop')}>Continue shopping <Icon name="arrow" size={16}/></button></main>

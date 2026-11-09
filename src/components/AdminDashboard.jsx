@@ -5,7 +5,7 @@ import Icon from './Icon.jsx'
 const money = (value) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(Number(value) || 0)
 const categoryName = (id) => categories.find((item) => item.id === id)?.label || id
 
-export default function AdminDashboard({ products, onUpdateProduct, onAddProduct }) {
+export default function AdminDashboard({ products, onUpdateProduct, onAddProduct, dataSourceStatus = 'local' }) {
   const [tab, setTab] = useState('overview')
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
@@ -27,18 +27,29 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     return matchesQuery && (category === 'all' || item.category === category)
   }), [products, query, category])
 
-  const update = (product) => {
-    onUpdateProduct(product)
-    setEditing(null)
-    setNotice(`${product.sku} updated successfully`)
-    window.setTimeout(() => setNotice(''), 2600)
+  const showNotice = (message, duration = 2600) => {
+    setNotice(message)
+    window.setTimeout(() => setNotice(''), duration)
   }
 
-  const quickStock = (product, delta) => {
+  const update = async (product) => {
+    try {
+      await onUpdateProduct(product)
+      setEditing(null)
+      showNotice(`${product.sku} updated successfully`)
+    } catch (error) {
+      showNotice(`Could not save ${product.sku}: ${error.message}`)
+    }
+  }
+
+  const quickStock = async (product, delta) => {
     const stock = Math.max(0, Number(product.stock || 0) + delta)
-    onUpdateProduct({ ...product, stock, stockStatus: stock === 0 ? 'out-of-stock' : stock <= product.reorderLevel ? 'low-stock' : 'in-stock' })
-    setNotice(`Stock updated for ${product.sku}`)
-    window.setTimeout(() => setNotice(''), 2200)
+    try {
+      await onUpdateProduct({ ...product, stock, stockStatus: stock === 0 ? 'out-of-stock' : stock <= product.reorderLevel ? 'low-stock' : 'in-stock' })
+      showNotice(`Stock updated for ${product.sku}`, 2200)
+    } catch (error) {
+      showNotice(`Could not update stock: ${error.message}`)
+    }
   }
 
   const exportCsv = () => {
@@ -71,7 +82,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
         <aside className="admin-sidebar" aria-label="Admin navigation">
           <p className="admin-nav-label">WORKSPACE</p>
           {navigation.map(([id, label, icon]) => <button key={id} type="button" className={tab === id ? 'is-active' : ''} onClick={() => setTab(id)}><Icon name={icon} size={17}/><span>{label}</span></button>)}
-          <div className="admin-sidebar-note"><span className="admin-status-dot"/> Local demo data<br/><small>Saved in this browser</small></div>
+          <div className="admin-sidebar-note"><span className="admin-status-dot"/> {dataSourceStatus === 'database' ? 'PostgreSQL connected' : dataSourceStatus === 'checking' ? 'Checking connection…' : 'Local demo data'}<br/><small>{dataSourceStatus === 'database' ? 'Saved in the database' : dataSourceStatus === 'checking' ? 'Connecting to API' : 'Saved in this browser'}</small></div>
         </aside>
 
         <section className="admin-content">
@@ -97,14 +108,14 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
             <div className="admin-section-heading"><div><p className="eyebrow">PRODUCT MANAGEMENT</p><h2>Products <span className="admin-count">{products.length}</span></h2></div><button className="admin-primary-button" type="button" onClick={() => setNewProductOpen(true)}><Icon name="plus" size={16}/> Add product</button></div>
             <div className="admin-table-tools"><label className="admin-search"><Icon name="search" size={16}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, brand or SKU"/></label><select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Filter by category"><option value="all">All categories</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>
             <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Price</th><th>Unit cost</th><th>Stock</th><th>Status</th><th></th></tr></thead><tbody>{filteredProducts.slice(0, 60).map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.brand}</small></td><td>{item.sku}</td><td>{categoryName(item.category)}</td><td>{money(item.price)}</td><td>{money(item.cost)}</td><td>{item.stock}</td><td><StockStatus product={item}/></td><td><button className="admin-edit-button" type="button" onClick={() => setEditing({ ...item })}>Edit</button></td></tr>)}</tbody></table></div>
-            <p className="admin-table-footnote">Showing {Math.min(filteredProducts.length, 60)} of {filteredProducts.length} matching products. Product changes are saved locally in this browser for this demonstration.</p>
+            <p className="admin-table-footnote">Showing {Math.min(filteredProducts.length, 60)} of {filteredProducts.length} matching products. {dataSourceStatus === 'database' ? 'Product changes are saved to PostgreSQL.' : 'Product changes are saved locally in this browser for this demonstration.'}</p>
           </>}
 
           {tab === 'inventory' && <>
             <div className="admin-section-heading"><div><p className="eyebrow">STOCK CONTROL</p><h2>Inventory</h2></div><span className="admin-readonly-note">Quick adjustments update the storefront</span></div>
             <div className="admin-metric-grid admin-metric-grid--compact"><Metric label="Total units" value={metrics.units.toLocaleString('en-GB')} icon="boxes"/><Metric label="Low stock SKUs" value={metrics.low} icon="alert-triangle" tone="warning"/><Metric label="Out of stock SKUs" value={metrics.out} icon="circle-alert" tone="danger"/></div>
             <div className="admin-panel"><div className="admin-panel-heading"><div><p className="eyebrow">REORDER CONTROL</p><h3>Stock adjustments</h3></div></div><div className="admin-inventory-list">{products.filter((item) => item.stock <= item.reorderLevel || item.stock === 0).sort((a,b) => a.stock-b.stock).slice(0, 25).map((item) => <div className="admin-inventory-row" key={item.id}><div><strong>{item.name}</strong><small>{item.sku} · {item.brand} · Reorder at {item.reorderLevel}</small></div><StockStatus product={item}/><div className="admin-quantity-control"><button type="button" onClick={() => quickStock(item, -1)} aria-label={`Remove one unit from ${item.name}`}>−</button><b>{item.stock}</b><button type="button" onClick={() => quickStock(item, 1)} aria-label={`Add one unit to ${item.name}`}>+</button></div><button type="button" className="admin-edit-button" onClick={() => setEditing({ ...item })}>Edit</button></div>)}</div></div>
-            <p className="admin-table-footnote">This is a local demonstration. Stock changes are not synchronised with a server or real warehouse.</p>
+            <p className="admin-table-footnote">{dataSourceStatus === 'database' ? 'Stock changes are recorded in PostgreSQL with an inventory movement history.' : 'This is a local demonstration. Stock changes are not synchronised with a server or real warehouse.'}</p>
           </>}
 
           {tab === 'export' && <>
@@ -115,7 +126,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
         </section>
       </div>
       {editing && <ProductEditor product={editing} onChange={setEditing} onSave={update} onClose={() => setEditing(null)}/>}
-      {newProductOpen && <NewProductForm onClose={() => setNewProductOpen(false)} onSave={(item) => { onAddProduct(item); setNewProductOpen(false); setNotice(`${item.sku} added to catalogue`) }}/>}
+      {newProductOpen && <NewProductForm onClose={() => setNewProductOpen(false)} onSave={async (item) => { try { await onAddProduct(item); setNewProductOpen(false); showNotice(`${item.sku} added to catalogue`) } catch (error) { showNotice(`Could not add product: ${error.message}`) } }}/>}
     </main>
   )
 }

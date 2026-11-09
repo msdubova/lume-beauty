@@ -74,3 +74,92 @@ src/
 Open the admin interface at `http://localhost:5173/#admin`. The dashboard includes an overview, product maintenance, inventory quick adjustments and product catalogue CSV export. Product edits are stored in the browser's `localStorage` under `lume-beauty-catalogue-v1`, so they persist on the same browser and device. They are not synced to a server or database.
 
 The Products screen supports editing name, brand, category, selling price, unit cost, stock, reorder level and description, as well as adding a new product. The Inventory screen supports one-unit stock adjustments. Data export downloads the current product master as CSV for Excel. Orders, sales simulation, user authentication, cloud persistence and advanced analytics are planned for later phases and are not implemented in this local demo yet.
+
+
+## PostgreSQL + Express API (new)
+
+The project can now use PostgreSQL as the source of truth for products and inventory. If the API is unavailable, the storefront falls back to the local browser demo data.
+
+### Requirements
+
+- Node.js 22.12+ (the current machine used for development was Node 22.16)
+- Docker Desktop with Docker Compose
+- npm
+
+### 1. Install the API packages
+
+```bash
+npm install
+```
+
+### 2. Configure local environment variables
+
+```bash
+cp .env.example .env
+```
+
+The example credentials are for local development only. Do not use them for a public or production deployment.
+
+### 3. Start PostgreSQL
+
+```bash
+docker compose up -d db
+```
+
+PostgreSQL is exposed on `localhost:5433` so it does not conflict with a local server using the default port 5432.
+
+### 4. Create tables and import the 150 demo products
+
+```bash
+npm run db:setup
+npm run db:seed
+```
+
+The seed script inserts the fictional brands, categories, products and opening stock movements. It does not overwrite existing product IDs, so rerunning it will not reset product edits.
+
+### 5. Run the API and the React app
+
+Open two Terminal tabs in the project directory.
+
+Terminal tab 1:
+
+```bash
+npm run server
+```
+
+Terminal tab 2:
+
+```bash
+npm run dev
+```
+
+Open the Vite URL (usually `http://localhost:5173`). In the Admin Dashboard, the sidebar should show **PostgreSQL connected**.
+
+### API endpoints in this phase
+
+- `GET /api/health` — database connection status
+- `GET /api/products` — product catalogue
+- `GET /api/products/:id` — one product
+- `POST /api/products` — create product
+- `PUT /api/products/:id` — edit product and record stock adjustments
+- `GET /api/inventory/movements` — recent inventory movement history
+
+The frontend uses the API when available. When it is not available, it falls back to the existing local demo mode.
+
+### Database design
+
+- `brands` — the 10 fictional brands
+- `categories` — the five product categories
+- `products` — product master, selling price, unit cost and current stock
+- `inventory_movements` — opening stock and every admin stock adjustment
+- `product_catalogue` — a view that calculates the stock status from current quantity and reorder level
+
+Stock updates and their inventory movement record are committed in one PostgreSQL transaction. This avoids a product quantity changing without a corresponding movement entry.
+
+### Important limitations
+
+This is a local learning/demo setup, not a public production store. The API currently has no user authentication or admin authorisation; do not expose it to the public internet. Orders, customer records, returns, payment processing and scheduled sales simulation are not connected yet. Basket and wishlist still live in React state and reset on page refresh.
+
+### Migration note
+
+When the PostgreSQL API is first connected, the database becomes the source of truth and the browser loads the seeded catalogue from PostgreSQL. Previous test edits kept only in the browser's `localStorage` are not automatically copied into the new database; the seeded demo catalogue uses the original project data. The browser copy is not deleted, but database-mode changes are saved to PostgreSQL instead.

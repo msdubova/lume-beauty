@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: lume-beauty-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lume_beauty}
+      POSTGRES_USER: ${POSTGRES_USER:-lume_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lume_dev_password}
+    ports:
+      - "5433:5432"
+    volumes:
+      - lume_beauty_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lume_app} -d ${POSTGRES_DB:-lume_beauty}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  lume_beauty_pgdata:
