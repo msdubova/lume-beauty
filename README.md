@@ -73,7 +73,7 @@ src/
 
 Open the admin interface at `http://localhost:5173/#admin`. The dashboard includes an overview, product maintenance, inventory quick adjustments and product catalogue CSV export. Product edits are stored in the browser's `localStorage` under `lume-beauty-catalogue-v1`, so they persist on the same browser and device. They are not synced to a server or database.
 
-The Products screen supports editing name, brand, category, selling price, unit cost, stock, reorder level and description, as well as adding a new product. The Inventory screen supports one-unit stock adjustments. Data export downloads the current product master as CSV for Excel. Orders, sales simulation, user authentication, cloud persistence and advanced analytics are planned for later phases and are not implemented in this local demo yet.
+The Products screen supports editing name, brand, category, selling price, unit cost, stock, reorder level and description, as well as adding a new product. The Inventory screen supports one-unit stock adjustments. Data export downloads the current product master as CSV for Excel. Orders and the manual Sales Simulator require the PostgreSQL API. User authentication, cloud persistence, scheduled sales generation and advanced analytics are future phases.
 
 
 ## PostgreSQL + Express API (new)
@@ -158,7 +158,7 @@ Stock updates and their inventory movement record are committed in one PostgreSQ
 
 ### Important limitations
 
-This is a local learning/demo setup, not a public production store. The API currently has no user authentication or admin authorisation; do not expose it to the public internet. Orders, customer records, returns, payment processing and scheduled sales simulation are not connected yet. Basket and wishlist still live in React state and reset on page refresh.
+This is a local learning/demo setup, not a public production store. The API currently has no user authentication or admin authorisation; do not expose it to the public internet. Returns, payment processing and scheduled sales simulation are not connected yet. Orders and customer records are now stored in PostgreSQL through the Orders module. Basket and wishlist still live in React state and reset on page refresh.
 
 ### Migration note
 
@@ -190,4 +190,54 @@ Creating an order locks all requested product rows in a stable order, validates 
 
 The demonstration currently assumes product selling prices include 20% VAT. It records the VAT amount and net sales per order line. No payment is taken. Cancelling a demo order restores the units and records `return` inventory movements; it does not issue a payment refund.
 
-The Admin Dashboard has an Orders tab with a one-line demo-order form, order details and a cancel-and-restock action. Bulk historical sales generation and the full Sales Simulator are the next phase; they are not implemented in this Orders module yet.
+The Admin Dashboard has an Orders tab with a one-line demo-order form, order details and a cancel-and-restock action. The manual Sales Simulator is documented in the next section. Scheduled generation and the separate 12-month historical dataset remain later phases.
+
+
+## Manual Sales Simulator v1
+
+The Admin Dashboard now includes a **Sales simulator** workspace for generating synthetic completed orders manually.
+
+### Run configuration
+
+- Generate 1–100 orders per run.
+- Choose an inclusive start and end date for the simulated order dates.
+- Supply a random seed for repeatable product selection, quantities, customers and order dates. Leave it blank to let the API create a seed.
+- Choose a demand profile: balanced, best-sellers focus or new-arrivals focus.
+- Set the chance that an order line receives a discount (0–100%) and the discount rate (0–30%).
+- Each order contains 1–3 different product lines. Quantities are constrained by available stock.
+
+### Transaction and stock integrity
+
+The simulator runs one PostgreSQL transaction for the entire batch. It locks eligible product rows in a stable order, inserts a `sales_simulation_runs` record, creates customers when needed, writes order and order-item records, stores unit-price and unit-cost snapshots, decreases stock, records `sale` inventory movements, updates the run summary and commits. If an operation fails, the entire run is rolled back. Concurrent checkouts must wait for the simulator's product locks, preventing the same final unit from being sold twice.
+
+Generated order rows use `source = 'simulator'` and reference the run through `simulation_run_id`. The run itself is stored with `simulation_mode = 'live'`; this identifies a manually generated demo-sales batch and is distinct from the planned historical-dataset generation mode.
+
+The summary includes gross sales before discounts, discounts, total sales including VAT, VAT, net sales excluding VAT, cost of goods sold, gross profit and average order value. Gross profit is calculated as net sales excluding VAT minus the saved unit-cost snapshots multiplied by quantities. The demonstration assumes the product prices include 20% VAT and that saved unit costs are ex-VAT.
+
+If available inventory is exhausted before the requested number of orders can be made, the run completes with fewer orders and sets `summary.inventoryLimited = true`. It never creates an order with no items or allows negative stock.
+
+### API endpoints
+
+- `GET /api/simulations?limit=20` — recent simulation run history
+- `POST /api/simulations/generate` — generate a manual batch of synthetic orders
+
+Example request:
+
+```json
+{
+  "ordersRequested": 10,
+  "periodStart": "2026-11-04",
+  "periodEnd": "2026-11-10",
+  "randomSeed": 42,
+  "demandProfile": "balanced",
+  "discountProbabilityPct": 15,
+  "discountPct": 10
+}
+```
+
+### Scope and limitations
+
+- This is a manual simulator only. Scheduled/automatic generation is a later phase.
+- These demo transactions are saved to the local learning database and reduce its product stock. No real payments are taken.
+- The simulator does not yet generate the separate 12-month historical dataset (1 November 2025–31 October 2026). That dataset will be generated in a separate, clearly labelled historical mode so it cannot be confused with manual demo runs.
+- The API remains a local-development service without authentication; do not expose it publicly.

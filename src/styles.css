@@ -609,3 +609,33 @@ img { display: block; max-width: 100%; }
 .admin-order-totals { display: grid; grid-template-columns: 1fr auto; gap: 9px 18px; max-width: 330px; margin: 18px 0 0 auto; color: #81766c; font-size: 10px; }
 .admin-order-totals strong { color: #413830; font-weight: 500; text-align: right; }
 @media (max-width: 650px) { .admin-order-actions { align-items: stretch; flex-direction: column; } .admin-orders-note { padding: 12px; } }
+
+
+/* Sales simulator v1 — manual synthetic order generation */
+.admin-simulator-panel { margin-bottom: 17px; }
+.admin-simulator-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.admin-simulator-fields .admin-field input,
+.admin-simulator-fields .admin-field select { min-height: 42px; font-size: 10px; }
+.admin-simulator-actions { margin-top: 17px; }
+.admin-simulator-actions .admin-primary-button { min-width: 190px; }
+.admin-simulator-result { margin-bottom: 17px; }
+.admin-sim-result-meta { margin: -5px 0 14px; color: #918579; font-size: 9px; }
+.admin-sim-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 15px; }
+.admin-sim-metrics .admin-metric { padding: 13px; }
+.admin-sim-metrics .admin-metric > strong { font-size: 25px; }
+.admin-sim-detail-grid { display: grid; grid-template-columns: 1fr auto; gap: 9px 18px; max-width: 480px; margin-left: auto; padding-top: 13px; border-top: 1px solid #eee9e3; color: #81766c; font-size: 9px; }
+.admin-sim-detail-grid strong { color: #413830; font-weight: 500; text-align: right; }
+.admin-sim-warning { margin: 13px 0 0; padding: 10px 12px; background: #f4eee4; color: #9c774d; font-size: 9px; line-height: 1.6; }
+.admin-sim-history { margin-bottom: 18px; }
+.admin-simulation-table { min-width: 780px; }
+.admin-sim-history .admin-panel-heading { align-items: center; }
+@media (max-width: 950px) {
+  .admin-simulator-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-sim-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 650px) {
+  .admin-simulator-fields { grid-template-columns: 1fr; }
+  .admin-sim-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-simulator-actions .admin-primary-button { width: 100%; }
+  .admin-sim-detail-grid { max-width: none; }
+}

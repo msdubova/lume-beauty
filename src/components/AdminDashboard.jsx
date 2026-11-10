@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { brands, categories } from '../data/products.js'
 import Icon from './Icon.jsx'
-import { cancelOrderApi, createOrderApi, getOrder, getOrders } from '../lib/api.js'
+import { cancelOrderApi, createOrderApi, generateSalesSimulationApi, getOrder, getOrders, getSimulationRuns } from '../lib/api.js'
 
 const money = (value) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(Number(value) || 0)
 const categoryName = (id) => categories.find((item) => item.id === id)?.label || id
@@ -19,6 +19,11 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
   const [newOrderOpen, setNewOrderOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [orderActionBusy, setOrderActionBusy] = useState(false)
+  const [simulationRuns, setSimulationRuns] = useState([])
+  const [simulationRunsLoading, setSimulationRunsLoading] = useState(false)
+  const [simulationRunsError, setSimulationRunsError] = useState('')
+  const [simulationBusy, setSimulationBusy] = useState(false)
+  const [latestSimulationResult, setLatestSimulationResult] = useState(null)
 
   useEffect(() => {
     if (tab !== 'orders') return undefined
@@ -34,6 +39,24 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
       .then((result) => { if (active) setOrders(result) })
       .catch((error) => { if (active) setOrdersError(error.message) })
       .finally(() => { if (active) setOrdersLoading(false) })
+
+    return () => { active = false }
+  }, [tab, dataSourceStatus])
+
+  useEffect(() => {
+    if (tab !== 'simulator') return undefined
+    if (dataSourceStatus !== 'database') {
+      setSimulationRunsError('Sales simulation requires an active PostgreSQL connection.')
+      return undefined
+    }
+
+    let active = true
+    setSimulationRunsLoading(true)
+    setSimulationRunsError('')
+    getSimulationRuns()
+      .then((result) => { if (active) setSimulationRuns(result) })
+      .catch((error) => { if (active) setSimulationRunsError(error.message) })
+      .finally(() => { if (active) setSimulationRunsLoading(false) })
 
     return () => { active = false }
   }, [tab, dataSourceStatus])
@@ -128,6 +151,35 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     }
   }
 
+  const generateManualSimulation = async (settings) => {
+    setSimulationBusy(true)
+    setSimulationRunsError('')
+    try {
+      const result = await generateSalesSimulationApi(settings)
+      setLatestSimulationResult(result)
+      const created = Number(result.ordersCreated || 0)
+      showNotice(`${created} simulated order${created === 1 ? '' : 's'} created. Inventory has been updated.`, 5000)
+      try {
+        const refreshedRuns = await getSimulationRuns()
+        setSimulationRuns(refreshedRuns)
+      } catch (refreshError) {
+        setSimulationRunsError(`The run was saved, but its history could not be refreshed: ${refreshError.message}`)
+      }
+      try {
+        await onRefreshProducts?.()
+      } catch (refreshError) {
+        showNotice(`The run was saved, but the product view could not refresh: ${refreshError.message}`, 6000)
+      }
+      return result
+    } catch (error) {
+      setSimulationRunsError(error.message)
+      showNotice(`Sales simulation failed: ${error.message}`, 6000)
+      return null
+    } finally {
+      setSimulationBusy(false)
+    }
+  }
+
   const exportCsv = () => {
     const columns = ['sku', 'name', 'brand', 'category', 'price', 'cost', 'stock', 'reorderLevel', 'stockStatus']
     const escape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
@@ -148,6 +200,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     ['products', 'Products', 'package'],
     ['inventory', 'Inventory', 'boxes'],
     ['orders', 'Orders', 'receipt'],
+    ['simulator', 'Sales simulator', 'chart'],
     ['export', 'Data export', 'file-down'],
   ]
 
@@ -178,7 +231,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
               </section>
               <section className="admin-panel admin-value-panel"><p className="eyebrow">STOCK VALUATION</p><h3>{money(metrics.value)}</h3><p>Estimated inventory cost value, calculated as units in stock × unit cost. This is not retail sales revenue.</p><button type="button" className="admin-secondary-button" onClick={() => setTab('export')}>Export catalogue <Icon name="arrow" size={15}/></button></section>
             </div>
-            <div className="admin-roadmap"><p className="eyebrow">NEXT DEVELOPMENT PHASES</p><div><span>01</span><strong>Orders & fulfilment</strong><small>Order list, order details and status updates</small></div><div><span>02</span><strong>Sales simulator</strong><small>Manual and scheduled synthetic sales generation</small></div><div><span>03</span><strong>Retail analytics</strong><small>Sales, margin, ABC, returns and forecasting</small></div></div>
+            <div className="admin-roadmap"><p className="eyebrow">NEXT DEVELOPMENT PHASES</p><div><span>01</span><strong>Orders & fulfilment</strong><small>Order creation, item snapshots and transactional stock updates</small></div><div><span>02</span><strong>Manual sales simulator</strong><small>Batch generation is available; scheduled runs are a later enhancement</small></div><div><span>03</span><strong>Retail analytics</strong><small>Sales, margin, ABC, returns and forecasting</small></div></div>
           </>}
 
           {tab === 'orders' && <>
@@ -192,6 +245,16 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
             {ordersLoading ? <p className="admin-muted">Loading orders…</p> : orders.length ? <div className="admin-table-wrap"><table className="admin-table admin-orders-table"><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Lines / units</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.orderNumber}</strong><small>#{order.id} · {order.source}</small></td><td>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' }).format(new Date(order.orderDate))}</td><td>{order.customerName}</td><td>{order.lineCount} lines · {order.units} units</td><td>{money(order.totalGross)}</td><td><span className={`admin-order-status ${order.status === 'cancelled' ? 'is-cancelled' : 'is-completed'}`}>{order.status}</span></td><td><div className="admin-order-actions"><button className="admin-edit-button" type="button" onClick={() => openOrderDetails(order)} disabled={orderActionBusy}>View</button>{order.status === 'completed' && <button className="admin-edit-button" type="button" onClick={() => cancelAndRestockOrder(order)} disabled={orderActionBusy}>Cancel & restock</button>}</div></td></tr>)}</tbody></table></div> : !ordersError && <div className="admin-empty-orders"><Icon name="receipt" size={25}/><h3>No orders yet</h3><p>Create a demonstration order to test how the order, item snapshots and stock movement are saved together.</p></div>}
             <p className="admin-table-footnote">Showing the latest {orders.length} orders. Cancelled orders remain in the database for audit history; later sales reports will exclude them from completed sales.</p>
           </>}
+
+          {tab === 'simulator' && <SalesSimulatorPanel
+            dataSourceStatus={dataSourceStatus}
+            runs={simulationRuns}
+            loading={simulationRunsLoading}
+            error={simulationRunsError}
+            busy={simulationBusy}
+            latestResult={latestSimulationResult}
+            onGenerate={generateManualSimulation}
+          />}
 
           {tab === 'products' && <>
             <div className="admin-section-heading"><div><p className="eyebrow">PRODUCT MANAGEMENT</p><h2>Products <span className="admin-count">{products.length}</span></h2></div><button className="admin-primary-button" type="button" onClick={() => setNewProductOpen(true)}><Icon name="plus" size={16}/> Add product</button></div>
@@ -210,7 +273,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
           {tab === 'export' && <>
             <div className="admin-section-heading"><div><p className="eyebrow">DATA MANAGEMENT</p><h2>Data export</h2></div></div>
             <section className="admin-panel admin-export-panel"><div className="admin-export-icon"><Icon name="file-spreadsheet" size={28}/></div><div><h3>Product catalogue export</h3><p>Download the current product master as a UTF-8 CSV file that can be opened in Microsoft Excel. Includes SKU, product, brand, category, selling price, unit cost, stock and reorder level.</p><button type="button" className="admin-primary-button" onClick={exportCsv}><Icon name="download" size={16}/> Export CSV</button></div></section>
-            <div className="admin-roadmap admin-roadmap--single"><p className="eyebrow">COMING LATER</p><div><span>02</span><strong>Sales & order exports</strong><small>Will be enabled after order records and sales simulation are implemented.</small></div><div><span>03</span><strong>Inventory movement history</strong><small>Receipts, sales, returns, adjustments and audit trail.</small></div></div>
+            <div className="admin-roadmap admin-roadmap--single"><p className="eyebrow">COMING LATER</p><div><span>02</span><strong>Sales & order exports</strong><small>Next export enhancement after the simulator and analytics reports.</small></div><div><span>03</span><strong>Inventory movement history</strong><small>Receipts, sales, returns, adjustments and audit trail.</small></div></div>
           </>}
         </section>
       </div>
@@ -220,6 +283,138 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
       {newProductOpen && <NewProductForm onClose={() => setNewProductOpen(false)} onSave={async (item) => { try { await onAddProduct(item); setNewProductOpen(false); showNotice(`${item.sku} added to catalogue`) } catch (error) { showNotice(`Could not add product: ${error.message}`) } }}/>}
     </main>
   )
+}
+
+function SalesSimulatorPanel({ dataSourceStatus, runs, loading, error, busy, latestResult, onGenerate }) {
+  const today = new Date()
+  const endDefault = toDateInput(today)
+  const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)
+  const [ordersRequested, setOrdersRequested] = useState('10')
+  const [periodStart, setPeriodStart] = useState(toDateInput(startDate))
+  const [periodEnd, setPeriodEnd] = useState(endDefault)
+  const [randomSeed, setRandomSeed] = useState('42')
+  const [demandProfile, setDemandProfile] = useState('balanced')
+  const [discountProbabilityPct, setDiscountProbabilityPct] = useState('15')
+  const [discountPct, setDiscountPct] = useState('10')
+  const [formError, setFormError] = useState('')
+
+  const mostRecentRun = latestResult || runs[0] || null
+  const recentSummary = mostRecentRun?.summary || {}
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const count = Number(ordersRequested)
+    const chance = Number(discountProbabilityPct)
+    const discount = Number(discountPct)
+    if (!Number.isInteger(count) || count < 1 || count > 100) {
+      setFormError('Choose between 1 and 100 orders for one run.')
+      return
+    }
+    if (!periodStart || !periodEnd || periodEnd < periodStart) {
+      setFormError('Choose a valid date range. The end date must be on or after the start date.')
+      return
+    }
+    if (!Number.isInteger(chance) || chance < 0 || chance > 100) {
+      setFormError('Promotion chance must be a whole number from 0 to 100.')
+      return
+    }
+    if (!Number.isInteger(discount) || discount < 0 || discount > 30) {
+      setFormError('Discount must be a whole number from 0 to 30%.')
+      return
+    }
+    if (randomSeed.trim() && (!Number.isInteger(Number(randomSeed)) || Number(randomSeed) < 0 || Number(randomSeed) > 2147483647)) {
+      setFormError('Random seed must be a whole number from 0 to 2147483647, or left empty.')
+      return
+    }
+
+    setFormError('')
+    await onGenerate({
+      ordersRequested: count,
+      periodStart,
+      periodEnd,
+      randomSeed: randomSeed.trim() ? Number(randomSeed) : null,
+      demandProfile,
+      discountProbabilityPct: chance,
+      discountPct: discount,
+    })
+  }
+
+  return <>
+    <div className="admin-section-heading">
+      <div><p className="eyebrow">SYNTHETIC TRANSACTIONS</p><h2>Sales simulator</h2></div>
+      <span className="admin-readonly-note">Manual generation · PostgreSQL</span>
+    </div>
+
+    <div className="admin-orders-note">
+      <strong>Manual sales generation — demo mode</strong>
+      <span>Generate synthetic completed orders using the current product catalogue and stock. Each order stores price and unit-cost snapshots, reduces inventory and records sale movements in one PostgreSQL transaction. No payments are taken. This is separate from the planned 12-month historical dataset.</span>
+    </div>
+
+    {dataSourceStatus !== 'database' && <p className="admin-form-error">Connect PostgreSQL to run the sales simulator.</p>}
+    {error && <p className="admin-form-error">{error}</p>}
+
+    <section className="admin-panel admin-simulator-panel">
+      <div className="admin-panel-heading">
+        <div><p className="eyebrow">RUN CONFIGURATION</p><h3>Generate demo sales</h3></div>
+        <span className="admin-stock-pill is-in">Manual mode</span>
+      </div>
+      <form onSubmit={submit}>
+        <div className="admin-simulator-fields">
+          <Field label="Orders to generate (1–100)"><input type="number" min="1" max="100" step="1" value={ordersRequested} onChange={(event) => setOrdersRequested(event.target.value)} required/></Field>
+          <Field label="Period start"><input type="date" value={periodStart} max={periodEnd || undefined} onChange={(event) => setPeriodStart(event.target.value)} required/></Field>
+          <Field label="Period end"><input type="date" value={periodEnd} min={periodStart || undefined} onChange={(event) => setPeriodEnd(event.target.value)} required/></Field>
+          <Field label="Random seed (optional)"><input type="number" min="0" max="2147483647" step="1" placeholder="Leave empty for a random seed" value={randomSeed} onChange={(event) => setRandomSeed(event.target.value)}/></Field>
+          <Field label="Demand profile"><select value={demandProfile} onChange={(event) => setDemandProfile(event.target.value)}><option value="balanced">Balanced demand</option><option value="bestsellers">Best sellers focus</option><option value="new-arrivals">New arrivals focus</option></select></Field>
+          <Field label="Promotion chance (%)"><input type="number" min="0" max="100" step="1" value={discountProbabilityPct} onChange={(event) => setDiscountProbabilityPct(event.target.value)}/></Field>
+          <Field label="Discount when applied (%)"><input type="number" min="0" max="30" step="1" value={discountPct} onChange={(event) => setDiscountPct(event.target.value)}/></Field>
+        </div>
+        <p className="admin-table-footnote">Each simulated order contains 1–3 different product lines. Quantities are limited by available stock. The selected seed makes product selection, quantities and simulated dates reproducible when the catalogue and stock are unchanged.</p>
+        {formError && <p className="admin-form-error">{formError}</p>}
+        <div className="admin-modal-actions admin-simulator-actions">
+          <button className="admin-primary-button" type="submit" disabled={busy || dataSourceStatus !== 'database'}><Icon name="play" size={15}/>{busy ? 'Generating orders…' : `Generate ${ordersRequested || '0'} orders`}</button>
+        </div>
+      </form>
+    </section>
+
+    {mostRecentRun && <section className="admin-panel admin-simulator-result">
+      <div className="admin-panel-heading"><div><p className="eyebrow">LATEST COMPLETED RUN</p><h3>Generation summary</h3></div><span className="admin-order-status is-completed">{mostRecentRun.status}</span></div>
+      <div className="admin-sim-result-meta">Run #{mostRecentRun.id} · Seed {mostRecentRun.randomSeed ?? '—'} · {formatRunDate(mostRecentRun.periodStart)} – {formatRunDate(mostRecentRun.periodEnd)}</div>
+      <div className="admin-metric-grid admin-sim-metrics">
+        <Metric label="Orders created" value={Number(mostRecentRun.ordersCreated || 0).toLocaleString('en-GB')} note={`${mostRecentRun.ordersRequested} requested`} icon="receipt"/>
+        <Metric label="Units sold" value={Number(recentSummary.units || 0).toLocaleString('en-GB')} note="Across simulated orders" icon="boxes"/>
+        <Metric label="Net sales (ex VAT)" value={money(recentSummary.netSales)} note="After discounts" icon="chart"/>
+        <Metric label="Gross profit" value={money(recentSummary.grossProfit)} note="Net sales less COGS" icon="trending-up"/>
+      </div>
+      {recentSummary.inventoryLimited && <p className="admin-sim-warning">The run created fewer orders than requested because available stock was exhausted.</p>}
+      <div className="admin-sim-detail-grid">
+        <span>Gross sales before discounts</span><strong>{money(recentSummary.subtotalGross)}</strong>
+        <span>Discounts</span><strong>{money(recentSummary.discountTotalGross)}</strong>
+        <span>Total sales (inc VAT)</span><strong>{money(recentSummary.totalGross)}</strong>
+        <span>VAT</span><strong>{money(recentSummary.vatTotal)}</strong>
+        <span>Cost of goods sold</span><strong>{money(recentSummary.costOfGoodsSold)}</strong>
+        <span>Average order value</span><strong>{money(recentSummary.averageOrderValueGross)}</strong>
+      </div>
+    </section>}
+
+    <section className="admin-panel admin-sim-history">
+      <div className="admin-panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h3>Recent simulation runs</h3></div><span className="admin-count">{runs.length}</span></div>
+      {loading ? <p className="admin-muted">Loading simulation history…</p> : runs.length ? <div className="admin-table-wrap"><table className="admin-table admin-simulation-table"><thead><tr><th>Run</th><th>Period</th><th>Orders</th><th>Units</th><th>Net sales</th><th>Seed</th><th>Status</th></tr></thead><tbody>{runs.map((run) => <tr key={run.id}><td><strong>#{run.id}</strong><small>{run.simulationMode === 'live' ? 'Manual demo' : run.simulationMode}</small></td><td>{formatRunDate(run.periodStart)} – {formatRunDate(run.periodEnd)}</td><td>{run.ordersCreated} / {run.ordersRequested}</td><td>{Number(run.summary?.units || 0)}</td><td>{money(run.summary?.netSales)}</td><td>{run.randomSeed ?? '—'}</td><td><span className={`admin-order-status ${run.status === 'completed' ? 'is-completed' : 'is-cancelled'}`}>{run.status}</span></td></tr>)}</tbody></table></div> : <div className="admin-empty-orders"><Icon name="chart" size={25}/><h3>No simulation runs yet</h3><p>Generate your first batch of synthetic orders above. The run history and all generated orders will be saved in PostgreSQL.</p></div>}
+      <p className="admin-table-footnote">The run log records requested and completed order counts, date range, random seed and sales summary. Generated orders can also be reviewed in the Orders workspace.</p>
+    </section>
+  </>
+}
+
+function toDateInput(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatRunDate(value) {
+  if (!value) return '—'
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`)
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(date)
 }
 
 function NewOrderForm({ products, busy, onClose, onCreate }) {

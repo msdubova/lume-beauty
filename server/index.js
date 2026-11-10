@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import { pool } from './db.js'
 import { cancelOrder, createOrder, getOrder, listOrders } from './orders.js'
+import { generateSalesSimulation, listSimulationRuns } from './simulation.js'
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
@@ -74,6 +75,16 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Order ID must be a number.' })
   const order = await cancelOrder(pool, req.params.id)
   res.json(order)
+})
+
+app.get('/api/simulations', async (req, res) => {
+  const runs = await listSimulationRuns(pool, req.query.limit)
+  res.json(runs)
+})
+
+app.post('/api/simulations/generate', async (req, res) => {
+  const run = await generateSalesSimulation(pool, req.body)
+  res.status(201).json(run)
 })
 
 app.get('/api/health', async (_req, res) => {

@@ -18,6 +18,9 @@ const paths = {
   'circle-alert': <><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></>,
   'file-down': <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M12 12v6m-3-3 3 3 3-3"/></>,
   'file-spreadsheet': <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 12h8M8 16h8M12 12v8"/></>,
+  chart: <><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/></>,
+  'trending-up': <><path d="M3 17 9 11l4 4 8-9"/><path d="M15 6h6v6"/></>,
+  play: <path d="m8 5 12 7-12 7V5Z" />,
   plus: <><path d="M12 5v14M5 12h14"/></>,
   download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></>,
 }

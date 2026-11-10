@@ -36,3 +36,9 @@ export const createOrderApi = (order) => request('/orders', {
 export const cancelOrderApi = (id) => request(`/orders/${encodeURIComponent(id)}/cancel`, {
   method: 'POST',
 })
+
+export const getSimulationRuns = (limit = 20) => request(`/simulations?limit=${encodeURIComponent(limit)}`)
+export const generateSalesSimulationApi = (settings) => request('/simulations/generate', {
+  method: 'POST',
+  body: JSON.stringify(settings),
+})
