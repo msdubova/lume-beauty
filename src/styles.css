@@ -639,3 +639,11 @@ img { display: block; max-width: 100%; }
   .admin-simulator-actions .admin-primary-button { width: 100%; }
   .admin-sim-detail-grid { max-width: none; }
 }
+
+
+/* Historical retail dataset generator v1 */
+.admin-historical-overview { margin-bottom: 17px; }
+.admin-historical-result { margin-bottom: 17px; }
+.admin-historical-table { min-width: 650px; }
+.admin-historical-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 650px) { .admin-historical-fields { grid-template-columns: 1fr; } }

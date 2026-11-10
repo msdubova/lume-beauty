@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "db:setup": "node server/setup-db.js",
-    "db:seed": "node server/seed.js"
+    "db:seed": "node server/seed.js",
+    "test": "node --test server/*.test.js"
   },
   "dependencies": {
     "dotenv": "^18.0.10",

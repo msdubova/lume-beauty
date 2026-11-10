@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { brands, categories } from '../data/products.js'
 import Icon from './Icon.jsx'
-import { cancelOrderApi, createOrderApi, generateSalesSimulationApi, getOrder, getOrders, getSimulationRuns } from '../lib/api.js'
+import { cancelOrderApi, createOrderApi, generateHistoricalDatasetApi, generateSalesSimulationApi, getHistoricalDatasetStatus, getOrder, getOrders, getSimulationRuns } from '../lib/api.js'
 
 const money = (value) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(Number(value) || 0)
 const categoryName = (id) => categories.find((item) => item.id === id)?.label || id
@@ -24,6 +24,10 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
   const [simulationRunsError, setSimulationRunsError] = useState('')
   const [simulationBusy, setSimulationBusy] = useState(false)
   const [latestSimulationResult, setLatestSimulationResult] = useState(null)
+  const [historicalStatus, setHistoricalStatus] = useState(null)
+  const [historicalLoading, setHistoricalLoading] = useState(false)
+  const [historicalError, setHistoricalError] = useState('')
+  const [historicalBusy, setHistoricalBusy] = useState(false)
 
   useEffect(() => {
     if (tab !== 'orders') return undefined
@@ -54,9 +58,27 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     setSimulationRunsLoading(true)
     setSimulationRunsError('')
     getSimulationRuns()
-      .then((result) => { if (active) setSimulationRuns(result) })
+      .then((result) => { if (active) setSimulationRuns(result.filter((run) => run.simulationMode === 'live')) })
       .catch((error) => { if (active) setSimulationRunsError(error.message) })
       .finally(() => { if (active) setSimulationRunsLoading(false) })
+
+    return () => { active = false }
+  }, [tab, dataSourceStatus])
+
+  useEffect(() => {
+    if (tab !== 'historical') return undefined
+    if (dataSourceStatus !== 'database') {
+      setHistoricalError('Historical data generation requires an active PostgreSQL connection.')
+      return undefined
+    }
+
+    let active = true
+    setHistoricalLoading(true)
+    setHistoricalError('')
+    getHistoricalDatasetStatus()
+      .then((result) => { if (active) setHistoricalStatus(result) })
+      .catch((error) => { if (active) setHistoricalError(error.message) })
+      .finally(() => { if (active) setHistoricalLoading(false) })
 
     return () => { active = false }
   }, [tab, dataSourceStatus])
@@ -161,7 +183,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
       showNotice(`${created} simulated order${created === 1 ? '' : 's'} created. Inventory has been updated.`, 5000)
       try {
         const refreshedRuns = await getSimulationRuns()
-        setSimulationRuns(refreshedRuns)
+        setSimulationRuns(refreshedRuns.filter((run) => run.simulationMode === 'live'))
       } catch (refreshError) {
         setSimulationRunsError(`The run was saved, but its history could not be refreshed: ${refreshError.message}`)
       }
@@ -177,6 +199,23 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
       return null
     } finally {
       setSimulationBusy(false)
+    }
+  }
+
+  const generateHistorical = async (settings) => {
+    setHistoricalBusy(true)
+    setHistoricalError('')
+    try {
+      const result = await generateHistoricalDatasetApi(settings)
+      setHistoricalStatus({ generated: true, run: result })
+      showNotice(`${Number(result.ordersCreated || 0).toLocaleString('en-GB')} historical orders saved. Live stock was not changed.`, 6500)
+      return result
+    } catch (error) {
+      setHistoricalError(error.message)
+      showNotice(`Historical data generation failed: ${error.message}`, 6500)
+      return null
+    } finally {
+      setHistoricalBusy(false)
     }
   }
 
@@ -201,6 +240,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     ['inventory', 'Inventory', 'boxes'],
     ['orders', 'Orders', 'receipt'],
     ['simulator', 'Sales simulator', 'chart'],
+    ['historical', 'Historical data', 'calendar'],
     ['export', 'Data export', 'file-down'],
   ]
 
@@ -254,6 +294,15 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
             busy={simulationBusy}
             latestResult={latestSimulationResult}
             onGenerate={generateManualSimulation}
+          />}
+
+          {tab === 'historical' && <HistoricalDataPanel
+            dataSourceStatus={dataSourceStatus}
+            status={historicalStatus}
+            loading={historicalLoading}
+            error={historicalError}
+            busy={historicalBusy}
+            onGenerate={generateHistorical}
           />}
 
           {tab === 'products' && <>
@@ -402,6 +451,105 @@ function SalesSimulatorPanel({ dataSourceStatus, runs, loading, error, busy, lat
       <p className="admin-table-footnote">The run log records requested and completed order counts, date range, random seed and sales summary. Generated orders can also be reviewed in the Orders workspace.</p>
     </section>
   </>
+}
+
+function HistoricalDataPanel({ dataSourceStatus, status, loading, error, busy, onGenerate }) {
+  const [ordersRequested, setOrdersRequested] = useState('2700')
+  const [randomSeed, setRandomSeed] = useState('20251101')
+  const [formError, setFormError] = useState('')
+  const run = status?.run || null
+  const summary = run?.summary || {}
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const count = Number(ordersRequested)
+    const seed = Number(randomSeed)
+    if (!Number.isInteger(count) || count < 2400 || count > 3000) {
+      setFormError('Choose between 2,400 and 3,000 historical orders.')
+      return
+    }
+    if (!Number.isInteger(seed) || seed < 0 || seed > 2147483647) {
+      setFormError('Random seed must be a whole number from 0 to 2147483647.')
+      return
+    }
+    const confirmed = window.confirm('Generate the one-off 12-month historical dataset? This creates 2,400–3,000 historical orders and a separate virtual inventory ledger. Current live stock and existing live orders will not be changed. The dataset is protected against accidental duplicate generation.')
+    if (!confirmed) return
+    setFormError('')
+    await onGenerate({ ordersRequested: count, randomSeed: seed })
+  }
+
+  return <>
+    <div className="admin-section-heading">
+      <div><p className="eyebrow">RETAIL ANALYTICS FOUNDATION</p><h2>Historical data generator</h2></div>
+      <span className="admin-readonly-note">One-off dataset · PostgreSQL</span>
+    </div>
+
+    <div className="admin-orders-note">
+      <strong>12-month synthetic trading history — separate from live sales</strong>
+      <span>Generate a reproducible dataset for 1 November 2025 to 31 October 2026. Historical orders use price and cost snapshots and a separate virtual inventory ledger. They do not change current product stock, live inventory movements or live demo orders. No payments are taken.</span>
+    </div>
+
+    <div className="admin-metric-grid admin-historical-overview">
+      <Metric label="Trading period" value="12 months" note="01 Nov 2025 – 31 Oct 2026" icon="calendar"/>
+      <Metric label="Catalogue" value="150 SKUs" note="10 fictional brands" icon="package"/>
+      <Metric label="Categories" value="5" note="30 products per category" icon="boxes"/>
+      <Metric label="Target orders" value="2,400–3,000" note="Default: 2,700" icon="receipt"/>
+    </div>
+
+    {dataSourceStatus !== 'database' && <p className="admin-form-error">Connect PostgreSQL to generate the historical dataset.</p>}
+    {error && <p className="admin-form-error">{error}</p>}
+    {loading ? <section className="admin-panel"><p className="admin-muted">Checking historical dataset status…</p></section> : status?.generated ? <>
+      <section className="admin-panel admin-historical-result">
+        <div className="admin-panel-heading"><div><p className="eyebrow">HISTORICAL DATASET</p><h3>Generation completed</h3></div><span className="admin-order-status is-completed">Protected</span></div>
+        <p className="admin-sim-result-meta">Run #{run.id} · Seed {run.randomSeed} · {formatRunDate(run.periodStart)} – {formatRunDate(run.periodEnd)}</p>
+        <div className="admin-metric-grid admin-sim-metrics">
+          <Metric label="Orders created" value={Number(run.ordersCreated || 0).toLocaleString('en-GB')} note="Completed historical orders" icon="receipt"/>
+          <Metric label="Order lines" value={Number(summary.orderLines || 0).toLocaleString('en-GB')} note="Product rows in orders" icon="file-spreadsheet"/>
+          <Metric label="Units sold" value={Number(summary.units || 0).toLocaleString('en-GB')} note="Across historical orders" icon="boxes"/>
+          <Metric label="Net sales (ex VAT)" value={money(summary.netSales)} note="After discounts" icon="chart"/>
+          <Metric label="COGS" value={money(summary.costOfGoodsSold)} note="Historical cost snapshots" icon="package"/>
+          <Metric label="Gross profit" value={money(summary.grossProfit)} note={`${Number(summary.grossMarginPct || 0).toFixed(1)}% gross margin`} icon="trending-up"/>
+        </div>
+        <div className="admin-sim-detail-grid">
+          <span>Gross sales before discounts</span><strong>{money(summary.subtotalGross)}</strong>
+          <span>Discounts</span><strong>{money(summary.discountTotalGross)}</strong>
+          <span>Total sales (inc VAT)</span><strong>{money(summary.totalGross)}</strong>
+          <span>VAT</span><strong>{money(summary.vatTotal)}</strong>
+          <span>Historical inventory movements</span><strong>{Number(summary.historicalInventoryMovements || 0).toLocaleString('en-GB')}</strong>
+          <span>Month-end stock snapshots</span><strong>{Number(summary.inventorySnapshots || 0).toLocaleString('en-GB')}</strong>
+        </div>
+      </section>
+
+      <section className="admin-panel admin-historical-result">
+        <div className="admin-panel-heading"><div><p className="eyebrow">MONTHLY PROFILE</p><h3>Trading history by month</h3></div><span className="admin-count">12 months</span></div>
+        <div className="admin-table-wrap"><table className="admin-table admin-historical-table"><thead><tr><th>Month</th><th>Orders</th><th>Units</th><th>Net sales</th><th>Gross profit</th></tr></thead><tbody>{(summary.monthly || []).map((month) => <tr key={month.month}><td>{formatRunMonth(month.month)}</td><td>{Number(month.orders).toLocaleString('en-GB')}</td><td>{Number(month.units).toLocaleString('en-GB')}</td><td>{money(month.netSales)}</td><td>{money(month.grossProfit)}</td></tr>)}</tbody></table></div>
+        <p className="admin-table-footnote">The first product launches on 18 January 2026. November and December 2025, and 1–17 January 2026, correctly contain no sales because no catalogue products were available yet.</p>
+      </section>
+      <div className="admin-orders-note"><strong>Historical dataset is protected from duplicate generation.</strong><span>This is a one-off dataset. It is stored separately from manual demo sales and its virtual inventory history does not alter current stock levels. To create a different dataset later, we should design a deliberate replacement workflow with backup and confirmation.</span></div>
+    </> : <section className="admin-panel admin-simulator-panel">
+      <div className="admin-panel-heading"><div><p className="eyebrow">RUN CONFIGURATION</p><h3>Generate 12-month history</h3></div><span className="admin-stock-pill is-in">Historical mode</span></div>
+      <form onSubmit={submit}>
+        <div className="admin-simulator-fields admin-historical-fields">
+          <Field label="Historical orders (2,400–3,000)"><input type="number" min="2400" max="3000" step="1" value={ordersRequested} onChange={(event) => setOrdersRequested(event.target.value)} required/></Field>
+          <Field label="Random seed"><input type="number" min="0" max="2147483647" step="1" value={randomSeed} onChange={(event) => setRandomSeed(event.target.value)} required/></Field>
+          <Field label="Period start"><input type="text" value="01 November 2025" readOnly/></Field>
+          <Field label="Period end"><input type="text" value="31 October 2026" readOnly/></Field>
+        </div>
+        <p className="admin-table-footnote">Expected output: approximately 3,500–5,000 order lines, plus historical opening stock, receipts, sales movements and 12 month-end inventory snapshots per SKU. Seed {randomSeed || '—'} makes the generated dataset reproducible for the same catalogue data.</p>
+        <p className="admin-sim-warning">Important: the earliest product launch date in this catalogue is 18 January 2026. The generator respects launch dates, so November and December 2025 and 1–17 January 2026 will be zero-sales periods. Historical generation does not modify live stock.</p>
+        {formError && <p className="admin-form-error">{formError}</p>}
+        <div className="admin-modal-actions admin-simulator-actions">
+          <button className="admin-primary-button" type="submit" disabled={busy || dataSourceStatus !== 'database'}><Icon name="play" size={15}/>{busy ? 'Generating historical data…' : `Generate ${Number(ordersRequested || 0).toLocaleString('en-GB')} historical orders`}</button>
+        </div>
+      </form>
+    </section>}
+  </>
+}
+
+function formatRunMonth(value) {
+  if (!value) return '—'
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`)
+  return new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(date)
 }
 
 function toDateInput(date) {

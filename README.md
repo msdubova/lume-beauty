@@ -61,7 +61,7 @@ src/
 
 - Basket and wishlist are held in React state only. They reset when the page is refreshed.
 - Checkout, payment, customer accounts and newsletter delivery are not connected to a server.
-- Product data is synthetic and held in `src/data/products.js`; no PostgreSQL database is connected yet.
+- The 150-product catalogue is synthetic. In database mode, PostgreSQL is the source of truth; `src/data/products.js` remains the browser fallback catalogue.
 - Prices, costs, stock levels, launch dates, ratings and review counts are invented for demonstration and portfolio practice.
 - Delivery and returns content is illustrative and must be replaced with real policies before any public launch.
 
@@ -69,11 +69,11 @@ src/
 - Added the missing `ProductCard` import in `src/App.jsx`. This fixes the `ProductCard is not defined` runtime error on the wishlist page.
 
 
-## Admin Dashboard (local demo)
+## Admin Dashboard
 
-Open the admin interface at `http://localhost:5173/#admin`. The dashboard includes an overview, product maintenance, inventory quick adjustments and product catalogue CSV export. Product edits are stored in the browser's `localStorage` under `lume-beauty-catalogue-v1`, so they persist on the same browser and device. They are not synced to a server or database.
+Open the admin interface at `http://localhost:5173/#admin`. The dashboard includes an overview, product maintenance, inventory adjustments, Orders, the manual Sales Simulator, the one-off Historical data generator and product catalogue CSV export. In database mode, product and inventory changes are stored in PostgreSQL. If the API is not available, the storefront can fall back to the local browser catalogue.
 
-The Products screen supports editing name, brand, category, selling price, unit cost, stock, reorder level and description, as well as adding a new product. The Inventory screen supports one-unit stock adjustments. Data export downloads the current product master as CSV for Excel. Orders and the manual Sales Simulator require the PostgreSQL API. User authentication, cloud persistence, scheduled sales generation and advanced analytics are future phases.
+The Products screen supports editing name, brand, category, selling price, unit cost, stock, reorder level and description, as well as adding a product. The Inventory screen supports stock adjustments and records them in the live inventory movement ledger. Orders and sales operations require the PostgreSQL API. User authentication, cloud persistence, scheduled sales generation and advanced analytics remain future phases.
 
 
 ## PostgreSQL + Express API (new)
@@ -158,7 +158,7 @@ Stock updates and their inventory movement record are committed in one PostgreSQ
 
 ### Important limitations
 
-This is a local learning/demo setup, not a public production store. The API currently has no user authentication or admin authorisation; do not expose it to the public internet. Returns, payment processing and scheduled sales simulation are not connected yet. Orders and customer records are now stored in PostgreSQL through the Orders module. Basket and wishlist still live in React state and reset on page refresh.
+This is a local learning/demo setup, not a public production store. The API currently has no user authentication or admin authorisation; do not expose it to the public internet. Returns, payment processing and scheduled sales simulation are not connected yet. Orders and customer records are stored in PostgreSQL. Basket and wishlist still live in React state and reset on page refresh.
 
 ### Migration note
 
@@ -241,3 +241,38 @@ Example request:
 - These demo transactions are saved to the local learning database and reduce its product stock. No real payments are taken.
 - The simulator does not yet generate the separate 12-month historical dataset (1 November 2025–31 October 2026). That dataset will be generated in a separate, clearly labelled historical mode so it cannot be confused with manual demo runs.
 - The API remains a local-development service without authentication; do not expose it publicly.
+
+
+## Historical sales dataset generator v1
+
+The admin dashboard has a separate **Historical data** workspace. It creates one reproducible synthetic dataset for **1 November 2025 to 31 October 2026**:
+
+- 2,400–3,000 completed historical orders (default 2,700)
+- approximately 3,500–5,000 order lines
+- 150 product SKUs, 10 fictional brands and 5 categories
+- order-line selling-price and unit-cost snapshots
+- a separate historical inventory movement ledger (opening stock, receipts and sales)
+- 12 month-end inventory snapshots per SKU
+- a monthly financial summary stored in the simulation run record
+
+Historical orders use `orders.source = 'historical'` and `sales_simulation_runs.simulation_mode = 'historical'`. The Orders workspace and live Sales Simulator show only live/admin demo activity. Historical orders cannot be cancelled through the live restock workflow.
+
+**Important catalogue-date caveat:** the earliest product launch date in the current catalogue is 18 January 2026. The generator respects each product's launch date. Therefore November and December 2025 and 1–17 January 2026 correctly have zero sales; this is an assortment-launch effect, not missing generated transactions.
+
+Historical inventory is deliberately isolated in `historical_inventory_movements` and `historical_inventory_snapshots`. Generating the historical dataset does **not** alter `products.stock` or the live `inventory_movements` table. A one-off generation guard prevents accidental duplicate creation. To replace the dataset later, build an explicit backup-and-reset workflow rather than deleting rows manually.
+
+Historical price and cost snapshots are synthetic approximations derived from the current catalogue values with small deterministic monthly index adjustments. They are suitable for practising retail analytics, not representations of real commercial trading records.
+
+To prepare the new tables and source constraint, run:
+
+```bash
+npm run db:setup
+```
+
+Then open Admin Dashboard → **Historical data** and generate the dataset. The default seed is `20251101`.
+
+Run deterministic generator tests with:
+
+```bash
+npm test
+```

@@ -156,3 +156,49 @@ CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, order_date D
 CREATE INDEX IF NOT EXISTS idx_orders_simulation_run ON orders(simulation_run_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);
+
+-- Historical dataset v1: isolated 12-month synthetic history. These records
+-- never change the live products.stock column or live inventory_movements.
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_source_check;
+ALTER TABLE orders
+  ADD CONSTRAINT orders_source_check
+  CHECK (source IN ('admin', 'simulator', 'historical'));
+
+CREATE TABLE IF NOT EXISTS historical_inventory_movements (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  simulation_run_id BIGINT NOT NULL REFERENCES sales_simulation_runs(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+  movement_date DATE NOT NULL,
+  event_sequence INTEGER NOT NULL,
+  movement_type TEXT NOT NULL CHECK (movement_type IN ('opening', 'receipt', 'sale', 'writeoff')),
+  quantity_delta INTEGER NOT NULL,
+  previous_quantity INTEGER NOT NULL CHECK (previous_quantity >= 0),
+  new_quantity INTEGER NOT NULL CHECK (new_quantity >= 0),
+  unit_cost_snapshot NUMERIC(10, 2) NOT NULL CHECK (unit_cost_snapshot >= 0),
+  note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (new_quantity = previous_quantity + quantity_delta),
+  UNIQUE (simulation_run_id, event_sequence)
+);
+
+CREATE INDEX IF NOT EXISTS idx_historical_inventory_product_date
+  ON historical_inventory_movements(product_id, movement_date, event_sequence);
+CREATE INDEX IF NOT EXISTS idx_historical_inventory_run_date
+  ON historical_inventory_movements(simulation_run_id, movement_date);
+
+CREATE TABLE IF NOT EXISTS historical_inventory_snapshots (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  simulation_run_id BIGINT NOT NULL REFERENCES sales_simulation_runs(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+  snapshot_date DATE NOT NULL,
+  snapshot_month DATE NOT NULL,
+  quantity_on_hand INTEGER NOT NULL CHECK (quantity_on_hand >= 0),
+  unit_cost_snapshot NUMERIC(10, 2) NOT NULL CHECK (unit_cost_snapshot >= 0),
+  inventory_value NUMERIC(12, 2) NOT NULL CHECK (inventory_value >= 0),
+  is_available BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (simulation_run_id, product_id, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_historical_inventory_snapshots_month
+  ON historical_inventory_snapshots(simulation_run_id, snapshot_month, product_id);

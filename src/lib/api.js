@@ -42,3 +42,9 @@ export const generateSalesSimulationApi = (settings) => request('/simulations/ge
   method: 'POST',
   body: JSON.stringify(settings),
 })
+
+export const getHistoricalDatasetStatus = () => request('/historical/status')
+export const generateHistoricalDatasetApi = (settings) => request('/historical/generate', {
+  method: 'POST',
+  body: JSON.stringify(settings),
+})

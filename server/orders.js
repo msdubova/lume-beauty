@@ -30,6 +30,7 @@ export async function listOrders(pool, limit = 100) {
        COALESCE(SUM(oi.quantity), 0)::int AS units
      FROM orders o
      LEFT JOIN order_items oi ON oi.order_id = o.id
+     WHERE o.source <> 'historical'
      GROUP BY o.id
      ORDER BY o.created_at DESC
      LIMIT $1`,
@@ -198,11 +199,12 @@ export async function cancelOrder(pool, orderId) {
   try {
     await client.query('BEGIN')
     const orderResult = await client.query(
-      'SELECT id, order_number AS "orderNumber", status FROM orders WHERE id = $1 FOR UPDATE',
+      'SELECT id, order_number AS "orderNumber", status, source FROM orders WHERE id = $1 FOR UPDATE',
       [orderId],
     )
     if (!orderResult.rowCount) throw httpError(404, 'Order not found.')
     const order = orderResult.rows[0]
+    if (order.source === 'historical') throw httpError(409, 'Historical orders are part of the locked synthetic dataset and cannot be cancelled or restocked through live inventory.')
     if (order.status !== 'completed') throw httpError(409, 'Only completed orders can be cancelled.')
 
     const itemResult = await client.query(

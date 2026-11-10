@@ -3,6 +3,7 @@ import express from 'express'
 import { pool } from './db.js'
 import { cancelOrder, createOrder, getOrder, listOrders } from './orders.js'
 import { generateSalesSimulation, listSimulationRuns } from './simulation.js'
+import { generateHistoricalDataset, getHistoricalDatasetStatus } from './historical.js'
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
@@ -84,6 +85,16 @@ app.get('/api/simulations', async (req, res) => {
 
 app.post('/api/simulations/generate', async (req, res) => {
   const run = await generateSalesSimulation(pool, req.body)
+  res.status(201).json(run)
+})
+
+app.get('/api/historical/status', async (_req, res) => {
+  const status = await getHistoricalDatasetStatus(pool)
+  res.json(status)
+})
+
+app.post('/api/historical/generate', async (req, res) => {
+  const run = await generateHistoricalDataset(pool, req.body)
   res.status(201).json(run)
 })
 

@@ -19,6 +19,7 @@ const paths = {
   'file-down': <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M12 12v6m-3-3 3 3 3-3"/></>,
   'file-spreadsheet': <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 12h8M8 16h8M12 12v8"/></>,
   chart: <><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/></>,
+  calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></>,
   'trending-up': <><path d="M3 17 9 11l4 4 8-9"/><path d="M15 6h6v6"/></>,
   play: <path d="m8 5 12 7-12 7V5Z" />,
   plus: <><path d="M12 5v14M5 12h14"/></>,
