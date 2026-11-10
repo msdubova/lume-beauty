@@ -12,6 +12,7 @@ const paths = {
   sliders: <><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></>,
   'layout-dashboard': <><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/></>,
   package: <><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="M3 8v9l9 5 9-5V8M12 13v9M7.5 5.5l9 5"/></>,
+  receipt: <><path d="M4 3h16v18l-3-2-3 2-2-2-2 2-3-2-3 2V3Z"/><path d="M8 8h8M8 12h8M8 16h5"/></>,
   boxes: <><path d="m3 7 6-3 6 3-6 3-6-3Z M3 7v7l6 3 6-3V7M15 10l3-1.5 3 1.5-3 1.5-3-1.5Z M15 10v7l3 1.5 3-1.5v-7"/></>,
   'alert-triangle': <><path d="M10.3 3.9 2.5 18a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3l-7.8-14.1a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></>,
   'circle-alert': <><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></>,

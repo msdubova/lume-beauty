@@ -1,17 +1,42 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { brands, categories } from '../data/products.js'
 import Icon from './Icon.jsx'
+import { cancelOrderApi, createOrderApi, getOrder, getOrders } from '../lib/api.js'
 
 const money = (value) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(Number(value) || 0)
 const categoryName = (id) => categories.find((item) => item.id === id)?.label || id
 
-export default function AdminDashboard({ products, onUpdateProduct, onAddProduct, dataSourceStatus = 'local' }) {
+export default function AdminDashboard({ products, onUpdateProduct, onAddProduct, onRefreshProducts, dataSourceStatus = 'local' }) {
   const [tab, setTab] = useState('overview')
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
   const [editing, setEditing] = useState(null)
   const [notice, setNotice] = useState('')
   const [newProductOpen, setNewProductOpen] = useState(false)
+  const [orders, setOrders] = useState([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
+  const [ordersError, setOrdersError] = useState('')
+  const [newOrderOpen, setNewOrderOpen] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [orderActionBusy, setOrderActionBusy] = useState(false)
+
+  useEffect(() => {
+    if (tab !== 'orders') return undefined
+    if (dataSourceStatus !== 'database') {
+      setOrdersError('Orders require an active PostgreSQL connection.')
+      return undefined
+    }
+
+    let active = true
+    setOrdersLoading(true)
+    setOrdersError('')
+    getOrders()
+      .then((result) => { if (active) setOrders(result) })
+      .catch((error) => { if (active) setOrdersError(error.message) })
+      .finally(() => { if (active) setOrdersLoading(false) })
+
+    return () => { active = false }
+  }, [tab, dataSourceStatus])
 
   const metrics = useMemo(() => {
     const units = products.reduce((sum, item) => sum + Number(item.stock || 0), 0)
@@ -52,6 +77,57 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     }
   }
 
+  const refreshOrders = async () => {
+    const result = await getOrders()
+    setOrders(result)
+    setOrdersError('')
+    return result
+  }
+
+  const createDemoOrder = async (payload) => {
+    setOrderActionBusy(true)
+    try {
+      const created = await createOrderApi(payload)
+      await refreshOrders()
+      await onRefreshProducts?.()
+      setNewOrderOpen(false)
+      showNotice(`${created.orderNumber} created. Stock has been updated.`)
+      return true
+    } catch (error) {
+      showNotice(`Could not create order: ${error.message}`, 5000)
+      return false
+    } finally {
+      setOrderActionBusy(false)
+    }
+  }
+
+  const openOrderDetails = async (order) => {
+    setOrderActionBusy(true)
+    try {
+      setSelectedOrder(await getOrder(order.id))
+    } catch (error) {
+      showNotice(`Could not load order: ${error.message}`, 5000)
+    } finally {
+      setOrderActionBusy(false)
+    }
+  }
+
+  const cancelAndRestockOrder = async (order) => {
+    const confirmed = window.confirm(`Cancel ${order.orderNumber} and return its units to stock? This is a demo order; no payment is involved.`)
+    if (!confirmed) return
+    setOrderActionBusy(true)
+    try {
+      await cancelOrderApi(order.id)
+      await refreshOrders()
+      await onRefreshProducts?.()
+      showNotice(`${order.orderNumber} cancelled and stock restored.`)
+    } catch (error) {
+      showNotice(`Could not cancel order: ${error.message}`, 5000)
+    } finally {
+      setOrderActionBusy(false)
+    }
+  }
+
   const exportCsv = () => {
     const columns = ['sku', 'name', 'brand', 'category', 'price', 'cost', 'stock', 'reorderLevel', 'stockStatus']
     const escape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
@@ -71,6 +147,7 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
     ['overview', 'Overview', 'layout-dashboard'],
     ['products', 'Products', 'package'],
     ['inventory', 'Inventory', 'boxes'],
+    ['orders', 'Orders', 'receipt'],
     ['export', 'Data export', 'file-down'],
   ]
 
@@ -104,6 +181,18 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
             <div className="admin-roadmap"><p className="eyebrow">NEXT DEVELOPMENT PHASES</p><div><span>01</span><strong>Orders & fulfilment</strong><small>Order list, order details and status updates</small></div><div><span>02</span><strong>Sales simulator</strong><small>Manual and scheduled synthetic sales generation</small></div><div><span>03</span><strong>Retail analytics</strong><small>Sales, margin, ABC, returns and forecasting</small></div></div>
           </>}
 
+          {tab === 'orders' && <>
+            <div className="admin-section-heading">
+              <div><p className="eyebrow">SALES & FULFILMENT</p><h2>Orders <span className="admin-count">{orders.length}</span></h2></div>
+              <button className="admin-primary-button" type="button" onClick={() => setNewOrderOpen(true)} disabled={dataSourceStatus !== 'database' || orderActionBusy}><Icon name="plus" size={16}/> Create demo order</button>
+            </div>
+            <div className="admin-orders-note"><strong>Transactional stock control</strong><span>Creating an order saves its line-item price and cost snapshots, reduces stock and records a sale movement in one PostgreSQL transaction. VAT is assumed to be 20% for this demonstration.</span></div>
+            {dataSourceStatus !== 'database' && <p className="admin-form-error">Connect PostgreSQL to manage orders.</p>}
+            {ordersError && <p className="admin-form-error">{ordersError}</p>}
+            {ordersLoading ? <p className="admin-muted">Loading orders…</p> : orders.length ? <div className="admin-table-wrap"><table className="admin-table admin-orders-table"><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Lines / units</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td><strong>{order.orderNumber}</strong><small>#{order.id} · {order.source}</small></td><td>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' }).format(new Date(order.orderDate))}</td><td>{order.customerName}</td><td>{order.lineCount} lines · {order.units} units</td><td>{money(order.totalGross)}</td><td><span className={`admin-order-status ${order.status === 'cancelled' ? 'is-cancelled' : 'is-completed'}`}>{order.status}</span></td><td><div className="admin-order-actions"><button className="admin-edit-button" type="button" onClick={() => openOrderDetails(order)} disabled={orderActionBusy}>View</button>{order.status === 'completed' && <button className="admin-edit-button" type="button" onClick={() => cancelAndRestockOrder(order)} disabled={orderActionBusy}>Cancel & restock</button>}</div></td></tr>)}</tbody></table></div> : !ordersError && <div className="admin-empty-orders"><Icon name="receipt" size={25}/><h3>No orders yet</h3><p>Create a demonstration order to test how the order, item snapshots and stock movement are saved together.</p></div>}
+            <p className="admin-table-footnote">Showing the latest {orders.length} orders. Cancelled orders remain in the database for audit history; later sales reports will exclude them from completed sales.</p>
+          </>}
+
           {tab === 'products' && <>
             <div className="admin-section-heading"><div><p className="eyebrow">PRODUCT MANAGEMENT</p><h2>Products <span className="admin-count">{products.length}</span></h2></div><button className="admin-primary-button" type="button" onClick={() => setNewProductOpen(true)}><Icon name="plus" size={16}/> Add product</button></div>
             <div className="admin-table-tools"><label className="admin-search"><Icon name="search" size={16}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, brand or SKU"/></label><select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Filter by category"><option value="all">All categories</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>
@@ -125,10 +214,66 @@ export default function AdminDashboard({ products, onUpdateProduct, onAddProduct
           </>}
         </section>
       </div>
+      {newOrderOpen && <NewOrderForm products={products} busy={orderActionBusy} onClose={() => setNewOrderOpen(false)} onCreate={createDemoOrder}/>}
+      {selectedOrder && <OrderDetailsDialog order={selectedOrder} onClose={() => setSelectedOrder(null)}/>}
       {editing && <ProductEditor product={editing} onChange={setEditing} onSave={update} onClose={() => setEditing(null)}/>}
       {newProductOpen && <NewProductForm onClose={() => setNewProductOpen(false)} onSave={async (item) => { try { await onAddProduct(item); setNewProductOpen(false); showNotice(`${item.sku} added to catalogue`) } catch (error) { showNotice(`Could not add product: ${error.message}`) } }}/>}
     </main>
   )
+}
+
+function NewOrderForm({ products, busy, onClose, onCreate }) {
+  const availableProducts = products.filter((product) => Number(product.stock) > 0)
+  const [productId, setProductId] = useState(availableProducts[0]?.id || '')
+  const [quantity, setQuantity] = useState('1')
+  const [customerName, setCustomerName] = useState('Demo customer')
+  const [error, setError] = useState('')
+  const selectedProduct = availableProducts.find((product) => product.id === productId)
+
+  const submit = async (event) => {
+    event.preventDefault()
+    if (!selectedProduct) { setError('Choose a product that is in stock.'); return }
+    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1 || Number(quantity) > Number(selectedProduct.stock)) {
+      setError(`Enter a whole number from 1 to ${selectedProduct.stock}.`)
+      return
+    }
+    setError('')
+    const succeeded = await onCreate({
+      customerName,
+      source: 'admin',
+      items: [{ productId, quantity: Number(quantity) }],
+    })
+    if (!succeeded) setError('The order was not created. Check the message on the dashboard.')
+  }
+
+  return <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <form className="admin-modal" onSubmit={submit}>
+      <div className="admin-modal-heading"><div><p className="eyebrow">ORDER SIMULATION · SINGLE LINE</p><h2>Create demo order</h2></div><button type="button" onClick={onClose} disabled={busy} aria-label="Close">×</button></div>
+      {availableProducts.length ? <>
+        <div className="admin-form-grid">
+          <Field label="Customer name"><input value={customerName} maxLength={120} onChange={(event) => setCustomerName(event.target.value)}/></Field>
+          <Field label="Product"><select value={productId} onChange={(event) => { setProductId(event.target.value); setQuantity('1') }}>{availableProducts.map((product) => <option key={product.id} value={product.id}>{product.sku} · {product.name} · {product.stock} in stock</option>)}</select></Field>
+          <Field label="Quantity"><input type="number" min="1" max={selectedProduct?.stock || 1} step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)}/></Field>
+          <Field label="Unit selling price"><input readOnly value={selectedProduct ? money(selectedProduct.price) : '—'}/></Field>
+        </div>
+        {selectedProduct && <p className="admin-table-footnote">Current stock: {selectedProduct.stock} · Unit cost: {money(selectedProduct.cost)}. The server will take the actual price and cost from PostgreSQL, not from this form.</p>}
+      </> : <p className="admin-form-error">There are no products currently in stock.</p>}
+      {error && <p className="admin-form-error">{error}</p>}
+      <div className="admin-modal-actions"><button type="button" className="admin-secondary-button" onClick={onClose} disabled={busy}>Cancel</button><button className="admin-primary-button" type="submit" disabled={busy || !availableProducts.length}>{busy ? 'Creating…' : 'Create order'}</button></div>
+    </form>
+  </div>
+}
+
+function OrderDetailsDialog({ order, onClose }) {
+  return <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="admin-modal admin-order-detail-modal">
+      <div className="admin-modal-heading"><div><p className="eyebrow">ORDER DETAILS · {order.status.toUpperCase()}</p><h2>{order.orderNumber}</h2></div><button type="button" onClick={onClose} aria-label="Close">×</button></div>
+      <p className="admin-order-detail-meta">{order.customerName} · {new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(order.orderDate))}</p>
+      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Product</th><th>Qty</th><th>Unit price</th><th>Unit cost</th><th>Line total</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.id}><td><strong>{item.productName}</strong><small>{item.sku} · {item.brand}</small></td><td>{item.quantity}</td><td>{money(item.unitPriceGross)}</td><td>{money(item.unitCost)}</td><td>{money(item.lineTotalGross)}</td></tr>)}</tbody></table></div>
+      <div className="admin-order-totals"><span>Net sales (ex VAT)</span><strong>{money(order.totalGross - order.vatTotal)}</strong><span>VAT</span><strong>{money(order.vatTotal)}</strong><span>Total (inc VAT)</span><strong>{money(order.totalGross)}</strong></div>
+      <div className="admin-modal-actions"><button type="button" className="admin-primary-button" onClick={onClose}>Close</button></div>
+    </section>
+  </div>
 }
 
 function Metric({ label, value, note, icon, tone = '' }) {

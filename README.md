@@ -163,3 +163,31 @@ This is a local learning/demo setup, not a public production store. The API curr
 ### Migration note
 
 When the PostgreSQL API is first connected, the database becomes the source of truth and the browser loads the seeded catalogue from PostgreSQL. Previous test edits kept only in the browser's `localStorage` are not automatically copied into the new database; the seeded demo catalogue uses the original project data. The browser copy is not deleted, but database-mode changes are saved to PostgreSQL instead.
+
+
+## Orders module v1
+
+The Orders workspace adds a first transaction-safe order workflow.
+
+### Apply the database update
+
+After replacing the project files with the Orders module update, run:
+
+```bash
+npm run db:setup
+```
+
+The schema update is idempotent and adds `customers`, `sales_simulation_runs`, `orders` and `order_items`. It does not drop or reset existing products or inventory movements.
+
+### Order workflow
+
+- `GET /api/orders` — recent order summaries
+- `GET /api/orders/:id` — one order with item snapshots
+- `POST /api/orders` — create a demo order
+- `POST /api/orders/:id/cancel` — cancel a completed demo order and restore stock
+
+Creating an order locks all requested product rows in a stable order, validates available stock, records the unit selling price and unit cost from PostgreSQL at order time, writes order items, reduces stock, and records `sale` inventory movements in one transaction. If any line fails, the complete transaction is rolled back.
+
+The demonstration currently assumes product selling prices include 20% VAT. It records the VAT amount and net sales per order line. No payment is taken. Cancelling a demo order restores the units and records `return` inventory movements; it does not issue a payment refund.
+
+The Admin Dashboard has an Orders tab with a one-line demo-order form, order details and a cancel-and-restock action. Bulk historical sales generation and the full Sales Simulator are the next phase; they are not implemented in this Orders module yet.

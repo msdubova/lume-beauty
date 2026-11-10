@@ -26,3 +26,13 @@ export const createProductApi = (product) => request('/products', {
   method: 'POST',
   body: JSON.stringify(product),
 })
+
+export const getOrders = (limit = 100) => request(`/orders?limit=${encodeURIComponent(limit)}`)
+export const getOrder = (id) => request(`/orders/${encodeURIComponent(id)}`)
+export const createOrderApi = (order) => request('/orders', {
+  method: 'POST',
+  body: JSON.stringify(order),
+})
+export const cancelOrderApi = (id) => request(`/orders/${encodeURIComponent(id)}/cancel`, {
+  method: 'POST',
+})

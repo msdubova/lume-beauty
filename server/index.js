@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import { pool } from './db.js'
+import { cancelOrder, createOrder, getOrder, listOrders } from './orders.js'
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
@@ -51,6 +52,29 @@ function stockStatus(stock, reorderLevel) {
   if (stock <= reorderLevel) return 'low-stock'
   return 'in-stock'
 }
+
+app.get('/api/orders', async (req, res) => {
+  const orders = await listOrders(pool, req.query.limit)
+  res.json(orders)
+})
+
+app.get('/api/orders/:id', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Order ID must be a number.' })
+  const order = await getOrder(pool, req.params.id)
+  if (!order) return res.status(404).json({ error: 'Order not found.' })
+  res.json(order)
+})
+
+app.post('/api/orders', async (req, res) => {
+  const order = await createOrder(pool, req.body)
+  res.status(201).json(order)
+})
+
+app.post('/api/orders/:id/cancel', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Order ID must be a number.' })
+  const order = await cancelOrder(pool, req.params.id)
+  res.json(order)
+})
 
 app.get('/api/health', async (_req, res) => {
   const result = await pool.query('SELECT NOW() AS database_time, current_database() AS database_name')
@@ -208,7 +232,7 @@ app.get('/api/inventory/movements', async (req, res) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error)
-  res.status(500).json({ error: 'An unexpected server error occurred.' })
+  res.status(error.status || 500).json({ error: error.status ? error.message : 'An unexpected server error occurred.' })
 })
 
 const server = app.listen(port, () => {

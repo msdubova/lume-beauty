@@ -175,6 +175,13 @@ function App() {
     return item
   }
 
+  const refreshDatabaseProducts = async () => {
+    const databaseProducts = await getProducts()
+    setCatalogueProducts(databaseProducts)
+    setDataSourceStatus('database')
+    return databaseProducts
+  }
+
   return (
     <div className="site-shell" id="top">
       {route.page !== 'admin' && <Header
@@ -301,7 +308,7 @@ function App() {
         </>
       )}
 
-      {route.page === 'admin' && <AdminDashboard products={catalogueProducts} onUpdateProduct={updateProduct} onAddProduct={addProduct} dataSourceStatus={dataSourceStatus} />}
+      {route.page === 'admin' && <AdminDashboard products={catalogueProducts} onUpdateProduct={updateProduct} onAddProduct={addProduct} onRefreshProducts={refreshDatabaseProducts} dataSourceStatus={dataSourceStatus} />}
 
       {route.page === 'account' && (
         <main className="simple-state-page"><p className="eyebrow">COMING SOON</p><h1>My account</h1><p>Customer accounts will be connected in a later development phase.</p><button type="button" className="primary-button" onClick={() => navigate('shop')}>Continue shopping <Icon name="arrow" size={16}/></button></main>
